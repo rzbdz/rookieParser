@@ -21,17 +21,17 @@ struct token {
   template <_StringArg _T> token(_T &&char_tr) : expr{char_tr} {}
   token(int i) : expr{to_string(i)} {}
 };
-struct anything {
+struct something {
   string str;
   virtual bool isTerminal() = 0;
-  template <_StringArg _T> anything(_T &&char_tr) : str{char_tr} {}
+  template <_StringArg _T> something(_T &&char_tr) : str{char_tr} {}
 };
-struct terminal : anything {
-  template <_StringArg _T> terminal(_T &&char_tr) : anything{char_tr} {}
+struct terminal : something {
+  template <_StringArg _T> terminal(_T &&char_tr) : something{char_tr} {}
   bool isTerminal() { return true; }
 };
-struct non_terminal : anything {
-  template <_StringArg _T> non_terminal(_T &&char_tr) : anything{char_tr} {}
+struct non_terminal : something {
+  template <_StringArg _T> non_terminal(_T &&char_tr) : something{char_tr} {}
   bool isTerminal() { return false; }
 };
 struct grammar {
@@ -41,43 +41,44 @@ struct grammar {
   typedef std::vector<token> tokens_t;
 
   // terminals
-  map_t<anything *, tokens_t> map{};
-  set_t<anything *> starts{};
-  map_t<anything *, vector<vector<anything *>>> prods{};
+  map_t<something *, tokens_t> map{};
+  set_t<something *> starts{};
+  map_t<something *, vector<vector<something *>>> prods{};
 
-  void addStart(anything *s) { starts.emplace(s); }
+  void addStart(something *s) { starts.emplace(s); }
 
-  void addProduction(anything *s, vector<anything *> a) {
+  void addProduction(something *s, vector<something *> a) {
     prods[s].emplace_back(a);
   }
 
   struct pipe {
     grammar *g;
-    anything *t;
-    friend const pipe &operator|(const pipe &p, vector<anything *> a) {
+    something *t;
+    friend const pipe &operator|(const pipe &p, vector<something *> a) {
       p.g->addProduction(p.t, a);
       return p;
     }
-    friend const pipe &operator>>(const pipe &p, vector<anything *> a) {
+    friend const pipe &operator>>(const pipe &p, vector<something *> a) {
       p.g->addProduction(p.t, a);
       return p;
     }
   };
 
-  pipe allow_produce(anything *s) { return {this, s}; }
+  pipe allowProduce(something *s) { return {this, s}; }
 
-  void addTerminal(anything *t, vector<token> s) {
+  void addTerminal(something *t, vector<token> s) {
     map[t].insert(map[t].end(), s.begin(), s.end());
   }
 
-  const auto &produce(anything *from) { return prods[from]; }
+  const auto &produce(something *from) { return prods[from]; }
+  
   string random_produce(int aprox_len = 20) {
     srand(time(0));
     string result = "";
     auto ti = starts.begin();
     advance(ti, rand() % starts.size());
-    anything *cur = *(ti);
-    deque<anything *> q;
+    something *cur = *(ti);
+    deque<something *> q;
     q.push_back(cur);
     while (!q.empty()) {
       // cout << result << endl;
@@ -87,8 +88,8 @@ struct grammar {
         result =
             result + static_cast<string>(map[cur][rand() % map[cur].size()]);
       } else {
-        const vector<vector<anything *>> &prds = produce(cur);
-        const vector<anything *> *rd = nullptr;
+        const vector<vector<something *>> &prds = produce(cur);
+        const vector<something *> *rd = nullptr;
         if (result.size() > aprox_len / 2) {
           for (auto &prd : prds) {
             if (prd[0]->str == "num") {
@@ -106,18 +107,23 @@ struct grammar {
       }
     }
     return result;
+  
+  
   }
+
+
 };
+
 struct pool {
   unordered_map<string, unique_ptr<terminal>> ts{};
   unordered_map<string, unique_ptr<non_terminal>> nts{};
-  terminal *new_terminal(string name) {
+  terminal *makeTerminal(string name) {
     return (ts[name] = make_unique<terminal>(std::move(name))).get();
   }
-  non_terminal *new_nonterminal(string name) {
+  non_terminal *makeNonterminal(string name) {
     return (nts[name] = make_unique<non_terminal>(std::move(name))).get();
   }
-  anything *operator[](const char *s) {
+  something *operator[](const char *s) {
     if (ts.contains(s)) {
       return ts[s].get();
     } else {
@@ -128,16 +134,16 @@ struct pool {
 
 grammar boolshit;
 pool mypool;
-anything *helper(string name, vector<token> ss) {
-  auto re = mypool.new_terminal(name);
+something *helper(string name, vector<token> ss) {
+  auto re = mypool.makeTerminal(name);
   boolshit.addTerminal(re, ss);
   return re;
 }
-anything *helper(string name) {
-  auto re = mypool.new_nonterminal(name);
+something *helper(string name) {
+  auto re = mypool.makeNonterminal(name);
   return re;
 }
-auto produce(auto &&a) { return boolshit.allow_produce(a); }
+auto produce(auto &&a) { return boolshit.allowProduce(a); }
 
 #define def_terminal(name, ...) auto name = helper(#name, {__VA_ARGS__})
 #define def_non_terminal(name) auto name = helper(#name)
@@ -155,7 +161,7 @@ int main(void) {
   def_non_terminal(unary);
   def_non_terminal(factor);
   // productions:
-  typedef vector<anything *> p;
+  typedef vector<something *> p;
   produce(expr) >> p{expr, lowOp, term} | p{term};
   produce(term) >> p{term, highOp, unary} | p{unary};
   produce(unary) >> p{lbra, lowOp, factor, rbra} | p{unary} | p{factor};
