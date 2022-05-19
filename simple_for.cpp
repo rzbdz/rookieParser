@@ -16,11 +16,30 @@
 
 using namespace std;
 
+#define NDEBUG
+#ifndef NDEBUG
+auto &prepend(int j) {
+  for (int i = 0; i < j; i++) {
+    cout << "-";
+  }
+  return cout;
+}
+#else
+struct null_ {
+  template <typename Anything>
+  friend null_ &operator<<(null_ &o, Anything &&an) {
+    return o;
+  }
+};
+null_ nnnn_;
+auto &prepend(int j) { return nnnn_; }
+#endif
+
 template <typename T>
 concept _StringArg = is_constructible_v<string, T>;
 struct token {
   string expr;
-  operator string() { return expr; }
+  operator string() const { return expr; }
   template <_StringArg _T> token(_T &&char_tr) : expr{char_tr} {}
   token(int i) : expr{to_string(i)} {}
   std::strong_ordering operator<=>(const token &) const = default;
@@ -89,16 +108,10 @@ struct grammar {
   }
 
   const auto &produce(anything *from) { return prods[from]; }
-  auto &prepend(int j) {
-    for (int i = 0; i < j; i++) {
-      cout << "-";
-    }
-    return cout;
-  }
+
   span<token> parsing(span<token> subview, anything *from, int pre) {
     prepend(pre - 1) << "inside " << from->str << " find `"
-                     << (string)subview[0] << "`"
-                     << "\n";
+                     << (string)subview[0] << "`" << subview.size() << "\n";
     decltype(auto) prods = produce(from);
     token lookahead = subview[0];
     decltype(auto) go_next = [&]() -> decltype(auto) {
@@ -113,14 +126,15 @@ struct grammar {
           }
         };
       }
-      throw "syntax error: cannot recognize " + lookahead.expr;
+      throw "syntax error: cannot recognize `" + lookahead.expr + "`";
     }();
     for (auto cur : go_next) {
       if (cur->isTerminal() && cur->str == "eps") {
-        prepend(pre) << "skip epsilon " << endl;
       } else if (cur->isTerminal()) {
-        prepend(pre) << "skip terminal " << cur->str << endl;
-        subview = subview.subspan(1);
+        if (subview.size() == 0) {
+          throw string{"expect more tokens to match " + cur->str};
+        }
+        subview = subview.subspan(1, subview.size() - 1);
       } else {
         subview = parsing(subview, cur, pre + 2);
       }
@@ -188,31 +202,56 @@ struct language {
     def_non_terminal(optexpr);
     // productions:
     typedef vector<anything *> p;
-    produce(stmt) >> p{expr, comma} | p{ifw, lbr, expr, rbr, stmt} |
-        p{forw, lbr, optexpr, comma, optexpr, comma, optexpr, rbr, stmt};
+    produce(stmt) >> p{expr, comma}    //
+        | p{ifw, lbr, expr, rbr, stmt} //
+        | p{forw, lbr, optexpr, comma, optexpr, comma, optexpr, rbr, stmt};
     produce(optexpr) >> p{expr} | p{eps};
     g.addStart(stmt);
   }
-  int try_parse(span<token> series) { return g.parse(series).size(); }
+  auto try_parse(span<token> series) { return g.parse(series); }
 };
 
 int main() {
   language calc;
-  string str = "for ( ; expr ; expr ) expr ; ";
-  //string str = "for ( expr ; expr ) ;; ";
-  int last = 0;
-  vector<token> test = {};
-  for (int i = 0; i < str.size(); i++) {
-    if (str[i] == ' ') {
-      auto s = str.substr(last, i - last);
-      cout << s << endl;
-      test.push_back(s);
-      last = i + 1;
+  vector<string> ss = {
+      "for ( ; expr ; expr ) for ( expr ; expr ; expr ) if ( expr ) expr ; ",
+      "for ( ; expr ; expr ) for ( expr ; expr ; ) if ( expr ) ; ",
+      //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^expect expr
+      "for ( ; expr ; ; ) for ( expr ; expr ; ) if ( expr ) ; ",
+      //^^^^^^^^^^^^^^^expect right bracket
+      "for ( ; expr  expr ) for ( expr ; expr ; expr ) if ( expr ) expr ; ",
+      //^^^^^^^^^^^^expect comma
+      "for ( ; expr ; expr ) for ( expr ; expr ; expr ) if ( expr ) expr ",
+      //^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^expect comma
+      "for (",
+      //^^^^
+  };
+  for (auto str : ss) {
+    int last = 0;
+    vector<token> test = {};
+    for (int i = 0; i < str.size(); i++) {
+      if (str[i] == ' ') {
+        auto s = str.substr(last, i - last);
+        prepend(0) << s << "\n";
+        test.push_back(s);
+        last = i + 1;
+      }
     }
-  }
-  try {
-    cout << (bool)(calc.try_parse(test) == 0) << endl;
-  } catch (string &e) {
-    cout << e << endl;
+    string msg;
+    span<token> c;
+    try {
+      c = calc.try_parse(test);
+    } catch (string &e) {
+      msg = e;
+    }
+    if (c.size() == 0 && msg.empty())
+      cout << "`" << str << "` is valid" << endl;
+    else {
+      cout << "`" << str << "` isn't valid\n┕────";
+      for (const auto &r : c) {
+        cout << "`" << (string)r << "` ";
+      }
+      cout << " remains not recognized: " + msg << endl;
+    }
   }
 }
