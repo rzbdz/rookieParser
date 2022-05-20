@@ -54,26 +54,26 @@ struct something {
   virtual bool isScheme() { return false; }
   template <_StringArg _T> something(_T &&char_tr) : str{char_tr} {}
   // for translation scheme or construct an AST.
-  virtual void exec(span<token> t) = 0;
+  virtual void exec(span<token> t, int) = 0;
 };
 
 struct terminal : something {
   template <_StringArg _T> terminal(_T &&char_tr) : something{char_tr} {}
   bool isTerminal() { return true; }
-  virtual void exec(span<token> t) {}
+  virtual void exec(span<token> t, int) {}
 };
 
 struct non_terminal : something {
   template <_StringArg _T> non_terminal(_T &&char_tr) : something{char_tr} {}
   bool isTerminal() { return false; }
-  virtual void exec(span<token> t) {}
+  virtual void exec(span<token> t, int) {}
 };
 
 struct scheme : something {
   template <_StringArg _T> scheme(_T &&char_tr) : something{char_tr} {}
   bool isTerminal() { return false; }
   virtual bool isScheme() { return true; }
-  virtual void exec(span<token>) = 0;
+  virtual void exec(span<token>, int) = 0;
 };
 
 class grammar {
@@ -152,8 +152,8 @@ private:
       throw "syntax error: cannot recognize `" + lookahead.expr + "`";
     }();
     decltype(subview) info = subview; // keep this level of production as info
+    int where = 0;
     for (auto cur : go_next) {
-      cur->exec(info);
       if (cur->isScheme() || cur->str == "eps") {
       } else if (cur->isTerminal()) {
         if (subview.size() == 0) {
@@ -163,6 +163,7 @@ private:
       } else {
         subview = parseHelper(subview, cur, pre + 2);
       }
+      cur->exec(info, where++);
     }
     return subview;
   }

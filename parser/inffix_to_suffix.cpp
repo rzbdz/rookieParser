@@ -3,11 +3,11 @@
 
 struct print : scheme {
   print() : scheme("printer") {}
-  void exec(span<token> ts) override { cout << ts[0].expr << " "; }
+  void exec(span<token> ts, int i) override { cout << ts[0].expr << " "; }
 };
 struct term_t : terminal {
   term_t(string s) : terminal(s) {}
-  void exec(span<token> ts) override { cout << ts[0].expr << " "; }
+  void exec(span<token> ts, int i) override { cout << ts[i].expr << " "; }
 };
 struct inffix_to_suffix : language<inffix_to_suffix> {
   print printer;
