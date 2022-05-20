@@ -1,8 +1,9 @@
 // simple for express parser,
 // `Compiler` book, 2.5.2
+#include <functional>
 #include <iostream>
+#include <memory>
 #include <random>
-#include <regex>
 #include <span>
 #include <string>
 #include <type_traits>
@@ -47,33 +48,19 @@ template <> struct hash<token> {
   size_t operator()(token e) const { return hash<string>()(e.expr); }
 };
 } // namespace std
+enum nalType { Terminal, NonTerminal, Scheme };
 
 struct something {
   string str;
-  virtual bool isTerminal() = 0;
-  virtual bool isScheme() { return false; }
-  template <_StringArg _T> something(_T &&char_tr) : str{char_tr} {}
+  nalType tp;
+  typedef void (*funcType)(span<token>, int);
+  funcType func;
+  auto type() { return tp; }
+  template <_StringArg _T>
+  something(_T &&char_tr, nalType t, funcType f)
+      : str{char_tr}, tp(t), func(f) {}
   // for translation scheme or construct an AST.
-  virtual void exec(span<token> t, int) = 0;
-};
-
-struct terminal : something {
-  template <_StringArg _T> terminal(_T &&char_tr) : something{char_tr} {}
-  bool isTerminal() { return true; }
-  virtual void exec(span<token> t, int) {}
-};
-
-struct non_terminal : something {
-  template <_StringArg _T> non_terminal(_T &&char_tr) : something{char_tr} {}
-  bool isTerminal() { return false; }
-  virtual void exec(span<token> t, int) {}
-};
-
-struct scheme : something {
-  template <_StringArg _T> scheme(_T &&char_tr) : something{char_tr} {}
-  bool isTerminal() { return false; }
-  virtual bool isScheme() { return true; }
-  virtual void exec(span<token>, int) = 0;
+  void exec(span<token> t, int a) { func(t, a); }
 };
 
 class grammar {
@@ -140,7 +127,7 @@ private:
     decltype(auto) go_next = [&]() -> decltype(auto) {
       for (auto &p : prods) {
         prepend(pre) << "scan anything: " << p[0]->str << "\n";
-        if (p[0]->isTerminal()) {
+        if (p[0]->type() == Terminal) {
           if (p[0]->str == "eps" || tokenInTerminal(p[0], lookahead)) {
             // epsilon
             prepend(pre) << "matched: " << p[0]->str << " with "
@@ -154,8 +141,8 @@ private:
     decltype(subview) info = subview; // keep this level of production as info
     int where = 0;
     for (auto cur : go_next) {
-      if (cur->isScheme() || cur->str == "eps") {
-      } else if (cur->isTerminal()) {
+      if (cur->type() == Scheme || cur->str == "eps") {
+      } else if (cur->type() == Terminal) {
         if (subview.size() == 0) {
           throw string{"expect token to match " + cur->str};
         }
@@ -176,19 +163,25 @@ public:
     throw "syntax error: nothing canbe started from " + view[0].expr;
   }
 };
-
+inline void _empty(span<token>, int) {}
 struct pool {
-  unordered_map<string, unique_ptr<terminal>> ts{};
-  unordered_map<string, unique_ptr<non_terminal>> nts{};
+  unordered_map<string, unique_ptr<something>> ts{};
+  unordered_map<string, unique_ptr<something>> nts{};
   static auto &getInstance() {
     static pool p;
     return p;
   }
-  template <typename T> terminal *makeTerminal(string name) {
-    return (ts[name] = make_unique<T>(std::move(name))).get();
+  something *makeTerminal(string name, something::funcType f = _empty) {
+    return (ts[name] = make_unique<something>(std::move(name), Terminal, f))
+        .get();
   }
-  non_terminal *makeNonterminal(string name) {
-    return (nts[name] = make_unique<non_terminal>(std::move(name))).get();
+  something *makeNonterminal(string name, something::funcType f = _empty) {
+    return (nts[name] = make_unique<something>(std::move(name), NonTerminal, f))
+        .get();
+  }
+  something *makeScheme(string name, something::funcType f) {
+    return (nts[name] = make_unique<something>(std::move(name), Scheme, f))
+        .get();
   }
   something *operator[](const char *s) {
     if (ts.contains(s)) {
@@ -202,23 +195,27 @@ struct pool {
 template <typename langImpl> struct language {
   grammar g;
   pool p;
-  template <typename T> something *buildHelper(string name, vector<token> ss) {
-    auto re = p.makeTerminal<T>(name);
+  something *buildHelper(string name, vector<token> ss,
+                         something::funcType f = _empty) {
+    auto re = p.makeTerminal(name, f);
     g.addTerminal(re, ss);
     return re;
   }
-  something *buildHelper(string name) {
-    auto re = p.makeNonterminal(name);
+  something *buildHelper(string name, something::funcType f = _empty) {
+    auto re = p.makeNonterminal(name, f);
     return re;
   }
+  auto &getPool() { return p; }
   auto produce(auto &&a) { return g.allowProduce(a); }
 
   language() { static_cast<langImpl *>(this)->build(); }
   auto tryParse(span<token> series) { return g.parse(series); }
 };
 
-#define def_terminal(name, ...)                                                \
-  auto name = buildHelper<terminal>(#name, {__VA_ARGS__})
+#define def_terminal(name, ...) auto name = buildHelper(#name, {__VA_ARGS__})
 #define def_other_terminal(name, type, ...)                                    \
-  auto name = buildHelper<type>(#name, {__VA_ARGS__})
+  auto name = buildHelper(#name, {__VA_ARGS__})
 #define def_non_terminal(name) auto name = buildHelper(#name)
+#define def_terminal_with_f(name, f, ...)                                      \
+  auto name = buildHelper(#name, {__VA_ARGS__}, f)
+#define def_non_terminal_with_f(name, f) auto name = buildHelper(#name, f)

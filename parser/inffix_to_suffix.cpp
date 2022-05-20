@@ -1,24 +1,16 @@
 #define NDEBUG
 #include "./LLPP.hpp"
-
-struct print : scheme {
-  print() : scheme("printer") {}
-  void exec(span<token> ts, int i) override { cout << ts[0].expr << " "; }
-};
-struct term_t : terminal {
-  term_t(string s) : terminal(s) {}
-  void exec(span<token> ts, int i) override { cout << ts[i].expr << " "; }
-};
+void Pexec(span<token> ts, int i) { cout << ts[0].expr << " "; }
+void Texec(span<token> ts, int i) { cout << ts[i].expr << " "; }
 struct inffix_to_suffix : language<inffix_to_suffix> {
-  print printer;
   void build() {
-    def_other_terminal(term, term_t, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
+    def_terminal_with_f(term, Texec, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9);
     def_terminal(op, "+", "-");
     def_terminal(eps, "");
     // non-terminals:
     def_non_terminal(expr);
     def_non_terminal(rest);
-    auto *ptr = (something *)&printer;
+    auto ptr = getPool().makeScheme("ptr", Pexec);
     // productions:
     typedef vector<something *> p;
     produce(expr) >> p{term, rest};
